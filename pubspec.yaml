@@ -1,7 +1,7 @@
 name: alcyone_mobile
 description: "Alcyone - a native-feeling Android shell for Multica."
 publish_to: 'none'
-version: 1.0.1+2
+version: 1.0.2+3
 
 environment:
   sdk: ^3.13.2

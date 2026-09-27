@@ -50,9 +50,24 @@ for the session to survive that trip:
 
 2. **Third-party cookies are on, and the session persists.** Android disables
    third-party cookies by default (API 21+), which silently breaks SSO
-   callbacks. `MainActivity.kt` enables them and accepts cookies via
-   `android.webkit.CookieManager` before the Flutter UI starts, so the session
-   also survives an app restart.
+   callbacks. `_enableAuthCookies` in `lib/main.dart` turns them on via
+   `AndroidWebViewCookieManager`, and `MainActivity.kt` enables and flushes
+   cookies via `android.webkit.CookieManager` so the session also survives an
+   app restart.
+
+The navigation rule itself is a pure function in
+`lib/src/navigation_policy.dart`, covered by `test/navigation_policy_test.dart`
+(23 tests) using real identity-provider URLs — Google, Microsoft, Auth0, GitHub,
+Apple, Descope — plus the callback URL. If a future change ever hands an
+identity provider to the system browser again, the tests fail on CI rather than
+on a user's phone.
+
+## Tests
+
+```bash
+flutter test                                   # 25 tests
+flutter test test/navigation_policy_test.dart  # the auth policy on its own
+```
 
 ## Requirements
 
@@ -99,7 +114,9 @@ nodes, no hairlines.
 
 ```
 lib/main.dart                       app shell: splash, WebView host, back nav, error view
-android/app/src/main/kotlin/.../MainActivity.kt   WebView cookie configuration for auth
+lib/src/navigation_policy.dart      pure, tested URL-routing policy
+android/app/src/main/kotlin/.../MainActivity.kt   persistent cookie configuration
+test/navigation_policy_test.dart    23 tests pinning the auth behaviour
 test/make_icon_test.dart            launcher icon generator
 test/make_icon_foreground_test.dart adaptive-icon foreground generator
 ```

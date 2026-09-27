@@ -5,30 +5,12 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
+import 'src/navigation_policy.dart';
+
 const String kAppName = 'Alcyone';
 const String kDefaultUrl = 'https://multica.ai';
 const String kPrefsKeyUrl = 'alcyone.base_url';
 const String kPrefsKeyTheme = 'alcyone.theme_mode';
-
-// Multica's own hosts, used to decide when the app is "home" again.
-const Set<String> kInternalHosts = {
-  'multica.ai',
-  'www.multica.ai',
-  'app.multica.ai',
-  'api.multica.ai',
-};
-
-// Schemes we must never try to render in the WebView.
-const Set<String> kNonWebSchemes = {
-  'mailto:',
-  'tel:',
-  'sms:',
-  'geo:',
-  'intent:',
-  'market:',
-  'whatsapp:',
-  'tg:',
-};
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -200,31 +182,14 @@ class _ShellState extends State<Shell> {
             }
           },
           onNavigationRequest: (req) async {
-            final uri = Uri.tryParse(req.url);
-            if (uri == null) return NavigationDecision.navigate;
-            final scheme = uri.scheme.toLowerCase();
-
-            // Non-web schemes (mail, tel, intent, app links) must leave the
-            // WebView - they cannot render here.
-            if (kNonWebSchemes.contains('$scheme:')) {
+            // AUTH FIX: policy lives in lib/src/navigation_policy.dart so it
+            // can be unit-tested. Every http(s) URL - including third-party
+            // identity hosts - stays in this WebView, so the OAuth callback
+            // writes its session cookie to the store this app actually reads.
+            if (resolveNavAction(req.url) == NavAction.external) {
               _openExternally(req.url);
               return NavigationDecision.prevent;
             }
-
-            // Custom app schemes (e.g. googleusercontent://) hand off to an
-            // installed app.
-            if (scheme != 'http' && scheme != 'https') {
-              _openExternally(req.url);
-              return NavigationDecision.prevent;
-            }
-
-            // AUTH FIX: allow the ENTIRE login round-trip to stay in the
-            // WebView. Previously anything outside multica.ai was pushed to
-            // the system browser, so the OAuth/email-code callback set its
-            // session cookie in the browser's jar instead of the WebView's -
-            // the app then reloaded still logged out. Keeping every http(s)
-            // navigation internal means the callback lands back here and the
-            // session sticks.
             return NavigationDecision.navigate;
           },
         ),
