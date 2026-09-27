@@ -35,6 +35,25 @@ Multica's responsive web design rather than a purpose-built native UI.
 - Network-failure screen with retry, never a blank white page
 - HTTPS-only: cleartext traffic is disabled in the network security config
 
+## Authentication
+
+Multica's login is an OAuth / email-code round-trip: it leaves for an external
+auth host and returns via a callback to `multica.ai`. Two things had to be right
+for the session to survive that trip:
+
+1. **The whole round-trip stays in the WebView.** The shell only hands a link to
+   the system browser for non-web schemes (`mailto:`, `tel:`, `intent:`, custom
+   app links). Every `http(s)` navigation stays internal, so the callback sets
+   the session cookie in the WebView's own store rather than the browser's.
+   Pushing the auth host to Chrome made login look successful but left the app
+   signed out on reload.
+
+2. **Third-party cookies are on, and the session persists.** Android disables
+   third-party cookies by default (API 21+), which silently breaks SSO
+   callbacks. `MainActivity.kt` enables them and accepts cookies via
+   `android.webkit.CookieManager` before the Flutter UI starts, so the session
+   also survives an app restart.
+
 ## Requirements
 
 - Android 6.0 (API 23) or newer
@@ -65,17 +84,24 @@ The APK lands at `build/app/outputs/flutter-apk/app-release.apk`.
 ## Regenerate the launcher icon
 
 ```bash
-flutter test test/make_icon_test.dart
+flutter test test/make_icon_test.dart               # assets/icon/alcyone_icon.png
+flutter test test/make_icon_foreground_test.dart   # adaptive foreground (safe zone)
+dart run flutter_launcher_icons                    # writes the mipmap resources
 ```
 
-Writes `assets/icon/alcyone_icon.png` (1024×1024).
+The mark reworks the existing Omni Eyes View language — an eye around a globe in
+cyan `#00F6FF` — into a six-blade aperture that reads as an eye, a camera
+shutter, and a fan-out of agents around a central orchestrator. Everything is
+sized for a 48px home-screen render: bold strokes, solid pupil and orbiting
+nodes, no hairlines.
 
 ## Project layout
 
 ```
-lib/main.dart              app shell: splash, WebView host, back nav, error view
-android/app/               Gradle project (ndkVersion intentionally unset)
-test/make_icon_test.dart   launcher-icon generator
+lib/main.dart                       app shell: splash, WebView host, back nav, error view
+android/app/src/main/kotlin/.../MainActivity.kt   WebView cookie configuration for auth
+test/make_icon_test.dart            launcher icon generator
+test/make_icon_foreground_test.dart adaptive-icon foreground generator
 ```
 
 ## License

@@ -1,23 +1,33 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 const String kAppName = 'Alcyone';
 const String kDefaultUrl = 'https://multica.ai';
 const String kPrefsKeyUrl = 'alcyone.base_url';
 const String kPrefsKeyTheme = 'alcyone.theme_mode';
 
-// Multica's own hosts. Anything on these stays inside the app shell so the
-// user is never stranded inside Destinations/OAuth flows.
+// Multica's own hosts, used to decide when the app is "home" again.
 const Set<String> kInternalHosts = {
   'multica.ai',
   'www.multica.ai',
   'app.multica.ai',
   'api.multica.ai',
+};
+
+// Schemes we must never try to render in the WebView.
+const Set<String> kNonWebSchemes = {
+  'mailto:',
+  'tel:',
+  'sms:',
+  'geo:',
+  'intent:',
+  'market:',
+  'whatsapp:',
+  'tg:',
 };
 
 void main() {
@@ -146,7 +156,17 @@ class _ShellState extends State<Shell> {
   }
 
   void _initWebView() {
-    final controller = WebViewController()
+    // AUTH FIX: the base WebViewController has no cookie API, but the Android
+    // platform controller does. Build the controller from Android creation
+    // params, then enable third-party cookies - Android disables them by
+    // default (API 21+), which breaks the OAuth/email-code round-trip because
+    // the auth provider's cookie gets dropped and the callback lands signed out.
+    final controller = WebViewController.fromPlatformCreationParams(
+      AndroidWebViewControllerCreationParams(),
+    );
+    _enableAuthCookies(controller);
+
+    controller
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFF0B0D10))
       ..setUserAgent(
@@ -182,17 +202,56 @@ class _ShellState extends State<Shell> {
           onNavigationRequest: (req) async {
             final uri = Uri.tryParse(req.url);
             if (uri == null) return NavigationDecision.navigate;
-            if (kInternalHosts.contains(uri.host)) {
-              return NavigationDecision.navigate;
+            final scheme = uri.scheme.toLowerCase();
+
+            // Non-web schemes (mail, tel, intent, app links) must leave the
+            // WebView - they cannot render here.
+            if (kNonWebSchemes.contains('$scheme:')) {
+              _openExternally(req.url);
+              return NavigationDecision.prevent;
             }
-            _openExternally(req.url);
-            return NavigationDecision.prevent;
+
+            // Custom app schemes (e.g. googleusercontent://) hand off to an
+            // installed app.
+            if (scheme != 'http' && scheme != 'https') {
+              _openExternally(req.url);
+              return NavigationDecision.prevent;
+            }
+
+            // AUTH FIX: allow the ENTIRE login round-trip to stay in the
+            // WebView. Previously anything outside multica.ai was pushed to
+            // the system browser, so the OAuth/email-code callback set its
+            // session cookie in the browser's jar instead of the WebView's -
+            // the app then reloaded still logged out. Keeping every http(s)
+            // navigation internal means the callback lands back here and the
+            // session sticks.
+            return NavigationDecision.navigate;
           },
         ),
       );
 
     _controller = controller;
     controller.loadRequest(Uri.parse(_baseUrl));
+  }
+
+  /// AUTH FIX: enable third-party cookies on the Android WebView.
+  ///
+  /// Android disables third-party cookies by default (API 21+). Multica's
+  /// login round-trips through an external auth host, so without this the
+  /// provider's cookie is discarded and the callback back to multica.ai lands
+  /// unauthenticated - the symptom being "login succeeds, then the app is
+  /// still signed out". This is a no-op on non-Android platforms.
+  void _enableAuthCookies(WebViewController controller) {
+    final platform = controller.platform;
+    if (platform is AndroidWebViewController) {
+      // ignore: unawaited_futures
+      AndroidWebViewCookieManager(
+        AndroidWebViewCookieManagerCreationParams
+            .fromPlatformWebViewCookieManagerCreationParams(
+          const PlatformWebViewCookieManagerCreationParams(),
+        ),
+      ).setAcceptThirdPartyCookies(platform, true).catchError((_) {});
+    }
   }
 
   Future<void> _openExternally(String url) async {

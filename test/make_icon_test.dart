@@ -1,8 +1,17 @@
-// Generates the Alcyone launcher icon PNG into assets/icon/.
-// Run with: flutter test test/make_icon_test.dart
+// Generates the Alcyone launcher icon.
 //
-// This lives in a test file on purpose: it needs the Flutter-bundled Dart and
-// the flutter/painting libraries, which a bare `dart run` cannot resolve.
+// BRAND DNA: the icon reworks Darren's existing "Omni Eyes View" mark (an eye
+// wrapped around a globe, cyan #00F6FF on blue) into an agent-orchestration
+// mark: a six-blade aperture that reads simultaneously as an eye, a camera
+// shutter, and a fan-out of agents around a central orchestrator.
+//
+// LEGIBILITY RULES (an app icon is judged at 48px on a home screen):
+//   - Bold silhouette only. No hairlines - anything under ~10px dies at 48px.
+//   - High-contrast dark base so the mark pops on any wallpaper.
+//   - The pupil and the three agent nodes are solid filled circles; they are
+//     the only elements that must survive at the smallest size.
+//
+// Run with: flutter test test/make_icon_test.dart
 
 import 'dart:io';
 import 'dart:math' as math;
@@ -11,67 +20,128 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+const Color kCyan = Color(0xFF00F6FF);
+const Color kViolet = Color(0xFF7C3AED);
+const Color kBase0 = Color(0xFF05070D);
+const Color kBase1 = Color(0xFF0E1428);
+
 void main() {
   test('generate Alcyone launcher icon', () async {
     const size = 1024.0;
+    const c = Offset(size / 2, size / 2);
+
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     final rect = Rect.fromLTWH(0, 0, size, size);
 
-    // Background: diagonal indigo -> violet gradient.
-    final bg = Paint()
+    // ---------- base: deep diagonal gradient ----------
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [kBase1, kBase0],
+        ).createShader(rect),
+    );
+
+    // radial bloom behind the mark for depth
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = ui.Gradient.radial(
+          c,
+          size * 0.60,
+          [
+            kViolet.withValues(alpha: 0.34),
+            kCyan.withValues(alpha: 0.10),
+            Colors.transparent,
+          ],
+          [0.0, 0.45, 1.0],
+        ),
+    );
+
+    // A Paint's shader is single-use in a recorded canvas, so every draw that
+    // needs the mark gradient gets its own Paint.
+    Paint markPaint() => Paint()
       ..shader = const LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
-        colors: [Color(0xFF5865F2), Color(0xFF8B5CF6)],
+        colors: [kCyan, kViolet],
       ).createShader(rect);
-    canvas.drawRect(rect, bg);
 
-    // Soft radial highlight for depth.
-    final glow = Paint()
-      ..shader = ui.Gradient.radial(
-        const Offset(size * 0.3, size * 0.26),
-        size * 0.62,
-        [Colors.white.withValues(alpha: 0.22), Colors.transparent],
-      );
-    canvas.drawRect(rect, glow);
-
-    // Hub glyph: a central node plus three satellites - the "agents on a
-    // board" idea, drawn from scratch (no Multica artwork is reproduced).
-    final center = Offset(size / 2, size / 2);
-    final orbit = size * 0.27;
-    final hubR = size * 0.115;
-    final nodeR = size * 0.072;
-
-    final line = Paint()
-      ..color = Colors.white.withValues(alpha: 0.92)
-      ..strokeWidth = size * 0.028
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke;
-
-    final sat = <Offset>[];
-    for (var i = 0; i < 3; i++) {
-      final a = -math.pi / 2 + (i * 2 * math.pi / 3);
-      sat.add(
-        Offset(center.dx + orbit * math.cos(a), center.dy + orbit * math.sin(a)),
-      );
-    }
-
-    for (final p in sat) {
-      canvas.drawLine(center, p, line);
-    }
-    for (final p in sat) {
-      canvas.drawCircle(p, nodeR, Paint()..color = Colors.white);
-    }
-    canvas.drawCircle(center, hubR, Paint()..color = const Color(0xFF5865F2));
+    // ---------- aperture ring (bold stroke) ----------
+    const ringR = size * 0.255;
     canvas.drawCircle(
-      center,
-      hubR,
+      c,
+      ringR,
       Paint()
-        ..color = Colors.white
         ..style = PaintingStyle.stroke
-        ..strokeWidth = size * 0.022,
+        ..strokeWidth = size * 0.046
+        ..shader = markPaint().shader,
     );
+
+    // ---------- six iris blades ----------
+    // Thick chords across the ring, rotated in 60deg steps. This is what makes
+    // the mark read as an eye AND a camera aperture at the same time.
+    final blade = Path();
+    const bladeR = size * 0.163;
+    const inset = size * 0.017;
+    for (var i = 0; i < 6; i++) {
+      final a = -math.pi / 2 + (i * math.pi / 3);
+      final p1 = Offset(
+        c.dx + (bladeR + inset) * math.cos(a - 0.62),
+        c.dy + (bladeR + inset) * math.sin(a - 0.62),
+      );
+      final p2 = Offset(
+        c.dx + (bladeR + inset) * math.cos(a + 0.62),
+        c.dy + (bladeR + inset) * math.sin(a + 0.62),
+      );
+      blade
+        ..moveTo(p1.dx, p1.dy)
+        ..quadraticBezierTo(
+          c.dx + bladeR * 0.30 * math.cos(a),
+          c.dy + bladeR * 0.30 * math.sin(a),
+          p2.dx,
+          p2.dy,
+        );
+    }
+    canvas.drawPath(
+      blade,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = size * 0.040
+        ..strokeCap = StrokeCap.round
+        ..shader = markPaint().shader,
+    );
+
+    // ---------- central pupil (the orchestrator) ----------
+    canvas.drawCircle(c, size * 0.072, Paint()..color = kCyan);
+    canvas.drawCircle(
+      c,
+      size * 0.115,
+      Paint()..color = kCyan.withValues(alpha: 0.22),
+    );
+
+    // ---------- three orbiting agent nodes ----------
+    // Solid filled circles on an implied orbit: they carry the "agents on a
+    // board" idea and stay legible at 48px. No connecting ring is drawn - at
+    // icon size it would collapse into a sub-pixel smudge.
+    const orbitR = size * 0.375;
+    const nodeR = size * 0.052;
+    for (var i = 0; i < 3; i++) {
+      final a = -math.pi / 3 + (i * 2 * math.pi / 3);
+      final p = Offset(
+        c.dx + orbitR * math.cos(a),
+        c.dy + orbitR * math.sin(a),
+      );
+      canvas.drawCircle(
+        p,
+        nodeR * 1.55,
+        Paint()..color = kViolet.withValues(alpha: 0.28),
+      );
+      canvas.drawCircle(p, nodeR, Paint()..shader = markPaint().shader);
+    }
 
     final image =
         await recorder.endRecording().toImage(size.toInt(), size.toInt());
@@ -80,6 +150,9 @@ void main() {
     out.parent.createSync(recursive: true);
     out.writeAsBytesSync(data!.buffer.asUint8List());
     // ignore: avoid_print
-    print('ICON WRITTEN: ${out.path} (${out.lengthSync()} bytes)');
+    print(
+      'ICON WRITTEN: ${out.path} (${out.lengthSync()} bytes, '
+      '${size.toInt()}x${size.toInt()})',
+    );
   });
 }
